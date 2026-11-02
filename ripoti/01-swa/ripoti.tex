@@ -1,0 +1,199 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage{fontspec}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\input{vipimo.tex}
+
+\renewcommand{\abstractname}{Muhtasari}
+\renewcommand{\refname}{Marejeo}
+\renewcommand{\tablename}{Jedwali}
+\renewcommand{\figurename}{Kielelezo}
+\renewcommand{\contentsname}{Yaliyomo}
+
+\lstdefinelanguage{Swa}{
+  morekeywords={muundo,rudisha,kama,sivyo,wakati,kwa,fanya,vunja,endelea,chagua,hali,husisha,achilia},
+  morekeywords=[2]{n8,n16,n32,n64,a8,a16,a32,a64,d32,d64,b1,b8,b16,b32,b64,w0},
+  sensitive=true, morecomment=[l]{//}, morestring=[b]"
+}
+\lstset{language=Swa, basicstyle=\ttfamily\small, keywordstyle=\bfseries,
+  keywordstyle=[2]\itshape, commentstyle=\color{gray}, columns=fullflexible,
+  frame=lines, xleftmargin=1em}
+
+\title{\textbf{Swa: lugha ya mifumo yenye sintaksia ya Kiswahili,\\inayojijenga kutoka baiti \KwanzaBaiti{} za mkono}\\[0.5em]
+\large Ripoti ya Kiufundi ya lugha-swa, Na.~1 --- Swa \Toleo}
+\author{Wachangiaji wa lugha-swa\\\small\url{https://github.com/lugha-swa}}
+\date{Novemba 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Tunaeleza Swa, lugha ya kupanga ya mifumo ambayo maneno yake yote muhimu, aina zake na maktaba yake ya kawaida ni ya Kiswahili, na ambayo mkusanyaji wake umeandikwa kwa Swa yenyewe. Mnyororo mzima wa ujenzi huanzia faili la baiti \KwanzaBaiti{} lililoandikwa kwa mkono, huzalisha mkusanyaji wa mbegu wa baiti \MbeguBaiti, kisha mkusanyaji kamili wa mistari \MkusanyajiMistari{} hujijenga mwenyewe hadi kizazi cha pili na cha tatu viwe sawa kwa kila baiti. Hakuna LLVM, assembler, kiunganishi wala libc kwenye njia hiyo: mkusanyaji huandika ELF ya x86-64 moja kwa moja, na pia WebAssembly na msimbo wa ring~0. Tunaeleza muundo wa mnyororo, jinsi usahihi unavyothibitishwa (programu \MajaribioProgramu{} za majaribio kwenye minyororo yote miwili, \MajaribioKata{} kati yake zikihakikisha makosa yanalia kwa sauti, na fixpoint ya baiti), na vipimo vya toleo \Toleo: mkusanyaji hujijenga kwa sekunde 0.80 kwenye kompyuta ya mkononi ya kawaida.
+\end{abstract}
+
+\section{Utangulizi}
+
+Lugha za kupanga za mifumo karibu zote zina sintaksia ya Kiingereza. Swa inauliza swali rahisi: je, lugha ya mifumo kamili --- yenye vielekezi, miundo, udhibiti wa kumbukumbu na uwezo wa kujijenga --- inaweza kuandikwa na kusomwa kwa Kiswahili kuanzia baiti ya kwanza, bila kutegemea zana za lugha nyingine kwenye njia yake ya ujenzi?
+
+Swali la pili ni la uaminifu. Thompson~\cite{thompson1984} alionyesha kwamba mkusanyaji unaojijenga unaweza kubeba msimbo uliofichwa ambao hauonekani kwenye chanzo chake. Jibu la jamii ya \emph{bootstrappable builds}~\cite{bootstrappable} ni kupunguza ``mbegu'' ya binary ambayo lazima iaminiwe bila chanzo hadi iwe ndogo vya kutosha kukaguliwa na binadamu. Swa inachukua njia hiyo: mbegu yake ya binary isiyo na chanzo cha juu ni baiti \KwanzaBaiti{} tu.
+
+\paragraph{Michango.} Ripoti hii inaeleza:
+\begin{itemize}
+  \item lugha ya mifumo yenye maneno muhimu 13 ya Kiswahili na familia tano za aina (sehemu~\ref{sec:lugha});
+  \item mnyororo wa ujenzi kutoka baiti \KwanzaBaiti{} hadi mkusanyaji unaojijenga, bila zana za nje (sehemu~\ref{sec:mnyororo});
+  \item mkusanyaji mmoja wenye malengo matatu --- ELF ya x86-64, WebAssembly, na ring~0 --- unaoandika msimbo wa mashine moja kwa moja (sehemu~\ref{sec:usanifu});
+  \item mfumo wa uthibitisho unaohitaji kila kosa lilie kwa sauti, na unaolinda kila toleo (sehemu~\ref{sec:uthibitisho});
+  \item vipimo vinavyozalika upya vya toleo \Toleo{} (sehemu~\ref{sec:tathmini}).
+\end{itemize}
+
+\section{Lugha}\label{sec:lugha}
+
+Swa ina maneno muhimu 13 tu: \texttt{muundo}, \texttt{rudisha}, \texttt{kama}, \texttt{sivyo}, \texttt{wakati}, \texttt{kwa}, \texttt{fanya}, \texttt{vunja}, \texttt{endelea}, \texttt{chagua}, \texttt{hali}, \texttt{husisha} na \texttt{achilia}. Kila kitu kingine --- kutenga kumbukumbu (\texttt{tenga}), kuandika (\texttt{andika}), mifuatano --- ni kazi za maktaba zilizoandikwa kwa Swa.
+
+\paragraph{Aina.} Majina ya aina ni herufi ya familia ikifuatiwa na upana wa biti: \texttt{n} (namba kamili yenye ishara), \texttt{a} (asili, bila ishara), \texttt{d} (desimali), \texttt{b} (mifumo ya biti) na \texttt{w} (upana wa mashine; \texttt{w0} ni ``bila thamani''). Familia \texttt{b} si namba: inaruhusu \texttt{\& | \^{} \textasciitilde{} << >> == !=} pekee, na hesabu juu yake inakataliwa na mkaguzi. Matokeo ya ulinganisho ni \texttt{n32} yenye 0 au 1.
+
+\paragraph{Miundo, vielekezi na moduli.} Miundo hutangazwa kwa \texttt{muundo}, hupitishwa na kurudishwa kwa thamani, na hufikiwa kwa \texttt{.} au \texttt{->}. Faili hujumuishwa kwa \texttt{husisha \{ njia \}}; mzunguko wa utegemezi unakataliwa kwa sauti.
+
+\begin{lstlisting}
+husisha { msingi/maktaba/kumbukumbu.swa }
+
+muundo Nukta {
+    n32 x;
+    n32 y;
+};
+
+n32 umbali_mraba(Nukta* a, Nukta* b) {
+    n32 dx = a->x - b->x;
+    n32 dy = a->y - b->y;
+    rudisha dx * dx + dy * dy;
+}
+
+n32 main() {
+    Nukta* a = tenga(ukubwa(Nukta));
+    Nukta* b = tenga(ukubwa(Nukta));
+    a->x = 1;  a->y = 2;
+    b->x = 4;  b->y = 6;
+    andika("umbali^2 = %d\n", umbali_mraba(a, b));
+    rudisha 0;
+}
+\end{lstlisting}
+
+\paragraph{Falsafa: ufafanuzi ni utendaji.} Kanuni ya kubuni ya Swa ni kwamba kile ambacho lugha inakubali lazima kifanye kazi kama kilivyoelezwa, na kile ambacho haiwezi kufanya lazima kikataliwe kwa ujumbe wa wazi --- si kupita kimya na kutoa msimbo usio sahihi. Kanuni hii ndiyo msingi wa mfumo wa uthibitisho wa sehemu~\ref{sec:uthibitisho}.
+
+\section{Mnyororo wa kujianzisha}\label{sec:mnyororo}
+
+Jedwali~\ref{tab:mnyororo} linaonyesha hatua za ujenzi.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llrr@{}}
+\toprule
+Hatua & Kinachojengwa & Ukubwa & Muda (ms) \\
+\midrule
+0 & \texttt{kwanza.bin} --- baiti za mkono, zimekaguliwa kwa jicho & \KwanzaBaiti{} B & --- \\
+1 & \texttt{kwanza}: \texttt{mbegu.hex} $\to$ \texttt{mbegu} & \MbeguBaiti{} B & \MudaKwanza \\
+2 & \texttt{mbegu} inakusanya mkusanyaji ($\to$ stage1) & \StageMojaBaiti{} B & \MudaMbegu \\
+3 & stage1 inajikusanya ($\to$ stage2) & \StageMbiliBaiti{} B & \MudaStageMoja \\
+4 & stage2 inajikusanya ($\to$ stage3) & \StageMbiliBaiti{} B & \MudaStageMbili \\
+\bottomrule
+\end{tabular}
+\caption{Mnyororo wa ujenzi wa Swa \Toleo. Muda ni median ya mara tatu kwenye \Cpu.}
+\label{tab:mnyororo}
+\end{table}
+
+\paragraph{Hatua 0--1: baiti za mkono.} \texttt{kwanza.bin} ni programu ya ELF ya baiti \KwanzaBaiti{} iliyoandikwa kwa mkono, inayofanya kazi moja: kusoma tarakimu za heksadesimali za \texttt{mbegu.hex} na kuandika baiti zake. Ni ndogo kiasi kwamba inaweza kukaguliwa yote na binadamu. Mbegu inayozalishwa ni sawa kwa kila baiti na \texttt{mbegu.bin} iliyohifadhiwa kwenye hazina.
+
+\paragraph{Hatua 2: mbegu.} Mbegu ni mkusanyaji wa Swa ulioandikwa kwa assembly (\texttt{mbegu.s}, mistari \MbeguMistari) na \emph{kugandishwa}: hubadilika tu kwa utaratibu rasmi ambao huthibitisha kwamba \texttt{mbegu.s} inazalisha tena \texttt{mbegu.bin} ile ile, kwamba mnyororo wote unapita kwa mbegu mpya, na kwamba kizazi cha pili hakibadiliki. Mbegu haiboreshi msimbo; ndiyo sababu stage1 ni kubwa (\StageMojaBaiti{} B) kuliko stage2 (\StageMbiliBaiti{} B) na polepole zaidi (\MudaStageMoja{} ms dhidi ya \MudaStageMbili{} ms).
+
+\paragraph{Hatua 3--4: fixpoint.} Mkusanyaji kamili umeandikwa kwa Swa (mistari \MkusanyajiMistari{}, \ZimaMistari{} baada ya \texttt{husisha} kutatuliwa). Unapojikusanya mara mbili, kizazi cha pili na cha tatu ni sawa kwa kila baiti (SHA-256 \texttt{\ShaFixpoint\ldots}). Fixpoint hii inaonyesha kwamba mkusanyaji unaelewa chanzo chake mwenyewe kwa uthabiti: badiliko lolote la tabia ya uzalishaji lingeonekana kama tofauti ya baiti.
+
+\section{Usanifu wa mkusanyaji}\label{sec:usanifu}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Faili & Mistari & Kazi \\
+\midrule
+\texttt{msomaji.swa} & 768 & leksia (tokeni) \\
+\texttt{msambazaji.swa} & 4\,066 & mchanganuzi $\to$ AST \\
+\texttt{mkaguzi.swa} & 1\,542 & ukaguzi wa aina na wigo \\
+\texttt{uzalishaji.swa} & 10\,299 & x86-64: msimbo wa mashine na ELF moja kwa moja \\
+\texttt{uzalishaji\_wasm.swa} & 1\,499 & WebAssembly \\
+\texttt{stage1.swa} & 742 & dereva: \texttt{husisha}, bendera, malengo \\
+\texttt{mteremko.swa} & 683 & IR ya majaribio (haitumiki bado) \\
+\bottomrule
+\end{tabular}
+\caption{Faili za mkusanyaji wa Swa \Toleo.}
+\end{table}
+
+Mkusanyaji hupita mara moja: leksia, mchanganuzi unaojenga AST, mkaguzi wa aina, kisha mzalishaji unaotembea AST moja kwa moja. Hakuna lugha ya kati inayotumika kwa sasa; \texttt{mteremko.swa} ni IR ya majaribio ambayo bado haijaunganishwa.
+
+\paragraph{x86-64.} \texttt{uzalishaji.swa} huandika baiti za maagizo moja kwa moja na kujenga faili la ELF~\cite{elf} lenyewe: vichwa, sehemu na marekebisho ya anwani. Hakuna assembler wala kiunganishi. Programu zinazotokana huzungumza na kernel kupitia \texttt{syscall} pekee; maktaba ya kawaida (kumbukumbu, mifuatano, faili, hesabu) imeandikwa kwa Swa juu ya hizo. Hali ya \texttt{--jit} huendesha programu moja kwa moja kwenye kumbukumbu.
+
+\paragraph{WebAssembly.} \texttt{uzalishaji\_wasm.swa} hutembea AST ile ile na kutoa moduli ya WebAssembly~\cite{haas2017}. Moduli huagiza kazi chache za JavaScript (\texttt{dom\_unda}, \texttt{dom\_ambatanisha}, \ldots), hivyo programu ya Swa inaweza kujenga mti wa DOM wa ukurasa wa wavuti. Wigo ni mdogo kwa makusudi (\texttt{n32}, vielekezi vya \texttt{n32}, mifuatano, \texttt{tenga}), na kila ujenzi nje ya wigo unakataliwa kwa ujumbe.
+
+\paragraph{Ring 0.} Bendera \texttt{--kernel} hutoa msimbo bapa bila ELF, bila \texttt{syscall} na bila maktaba, kwa ajili ya Kawira, kernel ya majaribio iliyoandikwa kwa Swa.
+
+\paragraph{Kutafuta maktaba.} \texttt{husisha} hutafuta kwanza kulingana na saraka ya sasa, kisha chini ya mahali mkusanyaji wenyewe ulipo (\texttt{<mzizi>/bin/swa} $\to$ \texttt{<mzizi>/msingi/maktaba/}), likipatikana kwa \texttt{readlink(/proc/self/exe)}. Hivyo binary ya toleo inafanya kazi popote ilipofunguliwa.
+
+\section{Uthibitisho}\label{sec:uthibitisho}
+
+Kila badiliko linaloingia kwenye tawi kuu hupita suti zote kwenye CI:
+
+\begin{itemize}
+  \item \textbf{Mnyororo} (\MnyororoJumla{} ukaguzi): programu \MajaribioProgramu{} za \texttt{majaribio/programu/} zinakusanywa kwa mbegu \emph{na} kwa stage1 na msimbo wa kutoka unalinganishwa; pamoja na fixpoint, faili kubwa, na majaribio ya mipaka.
+  \item \textbf{Makosa ya sauti} (\MajaribioKata{} kati ya hizo): kila ujenzi usio halali --- jina la aina kama jina la muundo, hesabu juu ya familia \texttt{b}, idadi mbaya ya hoja --- lazima ukataliwe, bila faili la matokeo, na ujumbe uliotarajiwa uonekane.
+  \item \textbf{Mkimbiaji asili} (\AsiliJumla): suti ile ile ikiendeshwa na mkimbiaji aliyeandikwa kwa Swa yenyewe (\texttt{fork}, \texttt{execve}, \texttt{wait4}), bila bash.
+  \item \textbf{WebAssembly} (\WasmJumla): moduli zinathibitishwa na kuendeshwa kwenye Node, ikiwemo mti wa DOM unaolinganishwa na JSON.
+  \item \textbf{Ring 0} (\KernelJumla): msimbo wa \texttt{--kernel} unaendeshwa kwenye QEMU.
+  \item \textbf{Mifano na usakinishaji}: msimbo ulio kwenye README unakusanywa na matokeo yake kulinganishwa; binary iliyosakinishwa nje ya hazina lazima ipate maktaba yake kwa njia nne za kuitwa.
+\end{itemize}
+
+\paragraph{Toleo.} Toleo hutolewa tu kwa lebo. Kazi ya CI hujenga kutoka baiti za mkono, huendesha suti zote kwenye lebo hiyo hiyo, hufunga tarball na kuijaribu nje ya hazina, hujenga picha ya chombo (container) isiyo na mfumo wa uendeshaji ndani na kuijaribu, na hapo tu ndipo huunda toleo. Hatua yoyote ikishindwa, hakuna toleo.
+
+\section{Tathmini}\label{sec:tathmini}
+
+Vipimo vyote ni vya commit \Commit{} (lebo \Toleo) kwenye \Cpu, Linux, kwa hati \texttt{pima.sh} iliyo pamoja na ripoti hii.
+
+\begin{itemize}
+  \item \textbf{Kujijenga:} stage2 hujikusanya (mistari \ZimaMistari) kwa \MudaStageMbili{} ms --- takriban mistari 26\,000 kwa sekunde --- na mnyororo mzima kutoka baiti \KwanzaBaiti{} hadi stage3 huchukua chini ya sekunde 3.1.
+  \item \textbf{Ukubwa:} mkusanyaji kamili ni \StageMbiliBaiti{} B, faili moja lisilo na utegemezi wowote.
+  \item \textbf{Athari ya kujiboresha:} stage1 (iliyojengwa na mbegu isiyoboresha) ni kubwa kwa 17\% na polepole kwa 53\% kuliko stage2 (iliyojengwa na mkusanyaji kamili).
+  \item \textbf{Uzalikaji upya:} mbegu iliyozalishwa kutoka \texttt{mbegu.hex} ni sawa kwa kila baiti na \texttt{mbegu.bin}; stage2 na stage3 ni sawa kwa kila baiti.
+\end{itemize}
+
+\noindent Vipimo ni vya mashine moja na median ya mara tatu; si kipimo cha ulinganisho na mikusanyaji mingine.
+
+\section{Mipaka}
+
+\begin{itemize}
+  \item Lengo la asili ni x86-64 Linux pekee. ARM64 inapangwa (lugha-swa/swa\#321).
+  \item WebAssembly ni sehemu ndogo ya lugha; matukio na vigezo vya ulimwengu vinaongezwa (lugha-swa/swa\#322).
+  \item Mbegu iliyogandishwa iko nyuma ya mkusanyaji kamili kwa vipengele; baadhi ya majaribio ni ya stage1 pekee.
+  \item Hakuna IR wala uboreshaji wa kina; mzalishaji hutembea AST moja kwa moja.
+  \item Uaminifu: tumepunguza mbegu isiyo na chanzo hadi baiti \KwanzaBaiti, lakini hatujafanya \emph{diverse double-compiling}~\cite{wheeler2009} dhidi ya mkusanyaji huru.
+  \item Ripoti hii haina ulinganisho wa kasi na mikusanyaji mingine.
+\end{itemize}
+
+\section{Kazi ijayo}
+
+Malengo yanayofuata ni ARM64 (simu, Raspberry Pi), WebAssembly yenye matukio kwa programu za wavuti zinazoweza kusakinishwa, na kompyuta zisizo za binary: \emph{Mizani}, mashine ya ternary iliyosawazishwa iliyoandikwa kwa Swa, na baadaye kiigaji cha quantum na lengo la OpenQASM. Kila moja litakuwa na ripoti yake.
+
+\section*{Upatikanaji}
+
+Chanzo: \url{https://github.com/lugha-swa/swa} (MIT au Apache-2.0). Toleo: \url{https://github.com/lugha-swa/swa/releases/tag/v0.0.1}. Picha: \texttt{ghcr.io/lugha-swa/swa:0.0.1}. Vipimo: \texttt{ripoti/01-swa/pima.sh} kwenye \url{https://github.com/lugha-swa/utafiti}.
+
+\begin{thebibliography}{9}
+\bibitem{thompson1984} K.~Thompson. Reflections on trusting trust. \emph{Communications of the ACM}, 27(8):761--763, 1984.
+\bibitem{bootstrappable} Bootstrappable Builds. \url{https://bootstrappable.org}.
+\bibitem{wheeler2009} D.~A. Wheeler. \emph{Fully Countering Trusting Trust through Diverse Double-Compiling}. Tasnifu ya PhD, George Mason University, 2009.
+\bibitem{haas2017} A.~Haas, A.~Rossberg, D.~L. Schuff, B.~L. Titzer, M.~Holman, D.~Gohman, L.~Wagner, A.~Zakai, J.~F. Bastien. Bringing the web up to speed with WebAssembly. \emph{PLDI}, 2017.
+\bibitem{elf} Tool Interface Standard. \emph{Executable and Linking Format (ELF) Specification}, toleo 1.2, 1995.
+\end{thebibliography}
+
+\end{document}
