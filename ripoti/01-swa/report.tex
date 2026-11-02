@@ -1,0 +1,194 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage{fontspec}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\input{vipimo.tex}
+
+
+\lstdefinelanguage{Swa}{
+  morekeywords={muundo,rudisha,kama,sivyo,wakati,kwa,fanya,vunja,endelea,chagua,hali,husisha,achilia},
+  morekeywords=[2]{n8,n16,n32,n64,a8,a16,a32,a64,d32,d64,b1,b8,b16,b32,b64,w0},
+  sensitive=true, morecomment=[l]{//}, morestring=[b]"
+}
+\lstset{language=Swa, basicstyle=\ttfamily\small, keywordstyle=\bfseries,
+  keywordstyle=[2]\itshape, commentstyle=\color{gray}, columns=fullflexible,
+  frame=lines, xleftmargin=1em}
+
+\title{\textbf{Swa: a systems language with Swahili syntax,\\bootstrapped from \KwanzaBaiti{} hand-written bytes}\\[0.5em]
+\large lugha-swa Technical Report No.~1 --- Swa \Toleo}
+\author{The lugha-swa contributors\\\small\url{https://github.com/lugha-swa}}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent We describe Swa, a systems programming language whose keywords, type names and standard library are in Kiswahili, and whose compiler is written in Swa itself. The entire build chain starts from a \KwanzaBaiti-byte hand-written file, produces a \MbeguBaiti-byte seed compiler, and then the full \MkusanyajiMistari-line compiler builds itself until the second and third generations are byte-identical. No LLVM, assembler, linker or libc is involved: the compiler writes x86-64 ELF directly, as well as WebAssembly and ring~0 code. We describe the bootstrap chain, how correctness is checked (\MajaribioProgramu{} test programs run through both compiler chains, \MajaribioKata{} of which require errors to be reported loudly, plus a byte-level fixpoint), and measurements of release \Toleo: the compiler rebuilds itself in 0.80\,s on an ordinary laptop.
+\end{abstract}
+
+\section{Introduction}
+
+Almost every systems programming language has English syntax. Swa asks a simple question: can a complete systems language --- with pointers, structures, manual memory management and the ability to compile itself --- be written and read in Kiswahili from the first byte, without depending on another language's toolchain anywhere in its build?
+
+The second question is trust. Thompson~\cite{thompson1984} showed that a self-compiling compiler can carry hidden code that never appears in its source. The \emph{bootstrappable builds} community's answer~\cite{bootstrappable} is to shrink the binary ``seed'' that must be trusted without source until it is small enough for a human to audit. Swa follows that path: its only binary without higher-level source is \KwanzaBaiti{} bytes.
+
+\paragraph{Contributions.} This report describes:
+\begin{itemize}
+  \item a systems language with 13 Kiswahili keywords and five type families (Section~\ref{sec:lugha});
+  \item a build chain from \KwanzaBaiti{} bytes to a self-hosting compiler, with no external tools (Section~\ref{sec:mnyororo});
+  \item one compiler with three targets --- x86-64 ELF, WebAssembly and ring~0 --- that emits machine code directly (Section~\ref{sec:usanifu});
+  \item a verification regime that requires every unsupported construct to fail loudly, and that gates every release (Section~\ref{sec:uthibitisho});
+  \item reproducible measurements of release \Toleo{} (Section~\ref{sec:tathmini}).
+\end{itemize}
+
+\section{The language}\label{sec:lugha}
+
+Swa has only 13 keywords: \texttt{muundo} (struct), \texttt{rudisha} (return), \texttt{kama} (if), \texttt{sivyo} (else), \texttt{wakati} (while), \texttt{kwa} (for), \texttt{fanya} (do), \texttt{vunja} (break), \texttt{endelea} (continue), \texttt{chagua} (switch), \texttt{hali} (case), \texttt{husisha} (include) and \texttt{achilia} (free). Everything else --- allocation (\texttt{tenga}), printing (\texttt{andika}), strings --- is library code written in Swa.
+
+\paragraph{Types.} A type name is a family letter followed by a bit width: \texttt{n} (signed integers), \texttt{a} (unsigned), \texttt{d} (floating point), \texttt{b} (bit patterns) and \texttt{w} (machine width; \texttt{w0} is ``no value''). The \texttt{b} family is not numeric: only \texttt{\& | \^{} \textasciitilde{} << >> == !=} are allowed, and arithmetic on it is rejected by the type checker. Comparisons yield an \texttt{n32} of 0 or 1.
+
+\paragraph{Structures, pointers and modules.} Structures are declared with \texttt{muundo}, passed and returned by value, and accessed with \texttt{.} or \texttt{->}. Files are included with \texttt{husisha \{ path \}}; dependency cycles are rejected loudly.
+
+\begin{lstlisting}
+husisha { msingi/maktaba/kumbukumbu.swa }
+
+muundo Nukta {          // struct Point
+    n32 x;
+    n32 y;
+};
+
+n32 umbali_mraba(Nukta* a, Nukta* b) {   // squared distance
+    n32 dx = a->x - b->x;
+    n32 dy = a->y - b->y;
+    rudisha dx * dx + dy * dy;
+}
+
+n32 main() {
+    Nukta* a = tenga(ukubwa(Nukta));
+    Nukta* b = tenga(ukubwa(Nukta));
+    a->x = 1;  a->y = 2;
+    b->x = 4;  b->y = 6;
+    andika("umbali^2 = %d\n", umbali_mraba(a, b));
+    rudisha 0;
+}
+\end{lstlisting}
+
+\paragraph{Design rule: what is accepted works.} Swa's design rule is that anything the language accepts must behave as specified, and anything it cannot do must be rejected with a clear message --- never silently compiled into wrong code. This rule underpins the verification regime of Section~\ref{sec:uthibitisho}.
+
+\section{The bootstrap chain}\label{sec:mnyororo}
+
+Table~\ref{tab:mnyororo} lists the build stages.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llrr@{}}
+\toprule
+Stage & Produces & Size & Time (ms) \\
+\midrule
+0 & \texttt{kwanza.bin} --- hand-written bytes, auditable by eye & \KwanzaBaiti{} B & --- \\
+1 & \texttt{kwanza}: \texttt{mbegu.hex} $\to$ seed & \MbeguBaiti{} B & \MudaKwanza \\
+2 & seed compiles the compiler ($\to$ stage1) & \StageMojaBaiti{} B & \MudaMbegu \\
+3 & stage1 compiles itself ($\to$ stage2) & \StageMbiliBaiti{} B & \MudaStageMoja \\
+4 & stage2 compiles itself ($\to$ stage3) & \StageMbiliBaiti{} B & \MudaStageMbili \\
+\bottomrule
+\end{tabular}
+\caption{The Swa \Toleo{} build chain. Times are the median of three runs on an \Cpu.}
+\label{tab:mnyororo}
+\end{table}
+
+\paragraph{Stages 0--1: hand-written bytes.} \texttt{kwanza.bin} is a \KwanzaBaiti-byte ELF program written by hand that does one thing: read the hexadecimal digits of \texttt{mbegu.hex} and write out the bytes. It is small enough to audit completely. The seed it produces is byte-identical to the \texttt{mbegu.bin} committed in the repository.
+
+\paragraph{Stage 2: the seed.} The seed is a Swa compiler written in assembly (\texttt{mbegu.s}, \MbeguMistari{} lines) and \emph{frozen}: it changes only through a formal procedure that checks that \texttt{mbegu.s} reproduces the same \texttt{mbegu.bin}, that the whole chain passes with the new seed, and that the second generation is unchanged. The seed does not optimise, which is why stage1 is larger (\StageMojaBaiti{} B) than stage2 (\StageMbiliBaiti{} B) and slower (\MudaStageMoja{} ms versus \MudaStageMbili{} ms).
+
+\paragraph{Stages 3--4: fixpoint.} The full compiler is written in Swa (\MkusanyajiMistari{} lines; \ZimaMistari{} after \texttt{husisha} resolution). Compiling itself twice, the second and third generations are byte-identical (SHA-256 \texttt{\ShaFixpoint\ldots}). The fixpoint shows that the compiler handles its own source stably: any change in code-generation behaviour would appear as a byte difference.
+
+\section{Compiler architecture}\label{sec:usanifu}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrl@{}}
+\toprule
+File & Lines & Role \\
+\midrule
+\texttt{msomaji.swa} & 768 & lexer \\
+\texttt{msambazaji.swa} & 4\,066 & parser $\to$ AST \\
+\texttt{mkaguzi.swa} & 1\,542 & type and scope checking \\
+\texttt{uzalishaji.swa} & 10\,299 & x86-64: machine code and ELF, directly \\
+\texttt{uzalishaji\_wasm.swa} & 1\,499 & WebAssembly \\
+\texttt{stage1.swa} & 742 & driver: \texttt{husisha}, flags, targets \\
+\texttt{mteremko.swa} & 683 & experimental IR (not yet used) \\
+\bottomrule
+\end{tabular}
+\caption{Source files of the Swa \Toleo{} compiler.}
+\end{table}
+
+The compiler is single-pass per stage: lexer, parser building an AST, type checker, then a code generator that walks the AST directly. No intermediate representation is used today; \texttt{mteremko.swa} is an experimental IR that is not yet wired in.
+
+\paragraph{x86-64.} \texttt{uzalishaji.swa} emits instruction bytes directly and builds the ELF file~\cite{elf} itself: headers, segments and relocations. There is no assembler and no linker. Generated programs talk to the kernel only through \texttt{syscall}; the standard library (memory, strings, files, maths) is written in Swa on top of those. A \texttt{--jit} mode runs a program directly from memory.
+
+\paragraph{WebAssembly.} \texttt{uzalishaji\_wasm.swa} walks the same AST and emits a WebAssembly module~\cite{haas2017}. Modules import a few JavaScript functions (\texttt{dom\_unda}, \texttt{dom\_ambatanisha}, \ldots), so a Swa program can build a web page's DOM tree. The supported subset is deliberately small (\texttt{n32}, \texttt{n32} pointers, strings, \texttt{tenga}), and anything outside it is rejected with a message.
+
+\paragraph{Ring 0.} The \texttt{--kernel} flag emits flat code with no ELF, no \texttt{syscall} and no library, for Kawira, an experimental kernel written in Swa.
+
+\paragraph{Library lookup.} \texttt{husisha} first searches relative to the current directory, then under the compiler's own install root (\texttt{<root>/bin/swa} $\to$ \texttt{<root>/msingi/maktaba/}), found via \texttt{readlink(/proc/self/exe)}. A release binary therefore works wherever it is unpacked.
+
+\section{Verification}\label{sec:uthibitisho}
+
+Every change merged into the main branch passes all suites in CI:
+
+\begin{itemize}
+  \item \textbf{Chain} (\MnyororoJumla{} checks): the \MajaribioProgramu{} programs in \texttt{majaribio/programu/} are compiled by the seed \emph{and} by stage1 and their exit codes compared; plus the fixpoint, large-file and limit tests.
+  \item \textbf{Loud errors} (\MajaribioKata{} of those): every invalid construct --- a type name used as a struct name, arithmetic on the \texttt{b} family, a wrong argument count --- must be rejected, with no output file, and with the expected message.
+  \item \textbf{Native runner} (\AsiliJumla): the same suite driven by a test runner written in Swa itself (\texttt{fork}, \texttt{execve}, \texttt{wait4}), with no bash.
+  \item \textbf{WebAssembly} (\WasmJumla): modules are validated and run in Node, including DOM trees compared against JSON.
+  \item \textbf{Ring 0} (\KernelJumla): \texttt{--kernel} code is run under QEMU.
+  \item \textbf{Examples and installation}: the code quoted in the README is compiled and its output compared; a binary installed outside the repository must find its library under four invocation styles.
+\end{itemize}
+
+\paragraph{Releases.} A release is made only by tagging. The CI job builds from the hand-written bytes, runs every suite on that exact tag, packages a tarball and tests it outside the repository, builds and tests a container image that contains no operating system, and only then publishes. If any step fails, there is no release.
+
+\section{Evaluation}\label{sec:tathmini}
+
+All measurements are of commit \Commit{} (tag \Toleo) on an \Cpu, Linux, using the \texttt{pima.sh} script distributed with this report.
+
+\begin{itemize}
+  \item \textbf{Self-compilation:} stage2 compiles itself (\ZimaMistari{} lines) in \MudaStageMbili{} ms --- roughly 26\,000 lines per second --- and the whole chain from \KwanzaBaiti{} bytes to stage3 takes under 3.1\,s.
+  \item \textbf{Size:} the full compiler is a single \StageMbiliBaiti-byte file with no dependencies.
+  \item \textbf{Effect of self-optimisation:} stage1 (built by the non-optimising seed) is 17\% larger and 53\% slower than stage2 (built by the full compiler).
+  \item \textbf{Reproducibility:} the seed regenerated from \texttt{mbegu.hex} is byte-identical to \texttt{mbegu.bin}; stage2 and stage3 are byte-identical.
+\end{itemize}
+
+\noindent These are single-machine, median-of-three measurements; they are not a comparison against other compilers.
+
+\section{Limitations}
+
+\begin{itemize}
+  \item The only native target is x86-64 Linux. ARM64 is planned (lugha-swa/swa\#321).
+  \item WebAssembly supports a subset of the language; events and globals are being added (lugha-swa/swa\#322).
+  \item The frozen seed lags the full compiler in features; some tests run on stage1 only.
+  \item There is no IR and no deep optimisation; the code generator walks the AST directly.
+  \item Trust: we have reduced the source-less seed to \KwanzaBaiti{} bytes, but have not performed \emph{diverse double-compiling}~\cite{wheeler2009} against an independent compiler.
+  \item This report contains no speed comparison with other compilers.
+\end{itemize}
+
+\section{Future work}
+
+Next targets are ARM64 (phones, Raspberry Pi), WebAssembly with events for installable web apps, and non-binary computing: \emph{Mizani}, a balanced-ternary machine written in Swa, and later a quantum simulator with an OpenQASM target. Each will get its own report.
+
+\section*{Availability}
+
+Source: \url{https://github.com/lugha-swa/swa} (MIT or Apache-2.0). Release: \url{https://github.com/lugha-swa/swa/releases/tag/v0.0.1}. Image: \texttt{ghcr.io/lugha-swa/swa:0.0.1}. Measurements: \texttt{ripoti/01-swa/pima.sh} in \url{https://github.com/lugha-swa/utafiti}.
+
+\begin{thebibliography}{9}
+\bibitem{thompson1984} K.~Thompson. Reflections on trusting trust. \emph{Communications of the ACM}, 27(8):761--763, 1984.
+\bibitem{bootstrappable} Bootstrappable Builds. \url{https://bootstrappable.org}.
+\bibitem{wheeler2009} D.~A. Wheeler. \emph{Fully Countering Trusting Trust through Diverse Double-Compiling}. PhD thesis, George Mason University, 2009.
+\bibitem{haas2017} A.~Haas, A.~Rossberg, D.~L. Schuff, B.~L. Titzer, M.~Holman, D.~Gohman, L.~Wagner, A.~Zakai, J.~F. Bastien. Bringing the web up to speed with WebAssembly. \emph{PLDI}, 2017.
+\bibitem{elf} Tool Interface Standard. \emph{Executable and Linking Format (ELF) Specification}, version 1.2, 1995.
+\end{thebibliography}
+
+\end{document}
